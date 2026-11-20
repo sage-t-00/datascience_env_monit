@@ -324,4 +324,4 @@ cat("\n")
 
 Pastorello, G. et al. (2020). The FLUXNET2015 dataset and the ONEFlux processing pipeline for eddy covariance data. *Scientific Data* 7, 225. <https://doi.org/10.1038/s41597-020-0534-3>
 
-**FLUXNET acknowledgement:** [paste the acknowledgement text from `flux4student/README.md` here]
+FLUXNET data products were produced and harmonized by eddy covariance regional networks and data processing centers, including AmeriFlux, ChinaFlux, European Fluxes Database, ICOS, JapanFlux, KoFlux, OzFlux, SAEON, and TERN. These products also include a modified version of ERA5 hourly data provided by the Copernicus Climate Change Service.
