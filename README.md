@@ -7,6 +7,8 @@ Synthetic GPP series: A simulated timeline of data for the gross primary product
 95% confidence interval, significance level alpha = 0.05
 So it means we are randomly resampling the GPP data to create hypothetical future scenarios, where we can predict what will happen in the future within a 95% confidence interval
 
+Treat -9999 as missing before monthly means
+
 ## Run
 Rscript scripts/cluster_hello.R 200
 
