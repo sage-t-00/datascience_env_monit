@@ -37,6 +37,44 @@ hh_all <- hh_all |>
 ```
 
 ## C1. Site overview
+```{r}
+#| label: site-overview
+snap_file <- list.files("data/snapshots", pattern = "\\.csv$", full.names = TRUE)[1]
+snap <- read_csv(snap_file, show_col_types = FALSE)
+
+my_sites <- c("AU-Ctr", "CN-Dan", "CR-Fsc", "DE-Tha", "US-MBP")
+my_snap <- snap |>
+  filter(site_id %in% my_sites) |>
+  arrange(site_id) |>
+  mutate(country = case_when(
+    substr(site_id, 1, 2) == "AU" ~ "Australia",
+    substr(site_id, 1, 2) == "CN" ~ "China",
+    substr(site_id, 1, 2) == "CR" ~ "Costa Rica",
+    substr(site_id, 1, 2) == "DE" ~ "Germany",
+    substr(site_id, 1, 2) == "US" ~ "USA"))
+
+my_snap |>
+  transmute(`Site ID` = site_id, Name = site_name, Country = country, IGBP = igbp,
+            `Lat (°)` = round(location_lat, 3), `Lon (°)` = round(location_long, 3),
+            `First year` = first_year, `Last year` = last_year, Hub = data_hub,
+            `Data DOI / ID` = product_id) |>
+  knitr::kable()
+```
+
+```{r}
+#| label: site-map
+#| fig-cap: "Locations of my five flux towers."
+world <- map_data("world")
+ggplot() +
+  geom_polygon(data = world, aes(long, lat, group = group),
+               fill = "grey85", colour = "white", linewidth = 0.1) +
+  geom_point(data = my_snap, aes(location_long, location_lat), colour = "red", size = 2.5) +
+  geom_text(data = my_snap, aes(location_long, location_lat, label = site_id),
+            vjust = -1, size = 3) +
+  coord_fixed(1.3, xlim = c(-180, 180), ylim = c(-60, 85)) +
+  labs(x = "Longitude (°)", y = "Latitude (°)") +
+  theme_minimal()
+```
 
 ## C2. Data coverage
 ```{r}
@@ -159,7 +197,8 @@ c(correlation = cor(chk$mine, chk$NEE_VUT_REF, use = "complete.obs"),
   mean_difference = mean(chk$mine - chk$NEE_VUT_REF, na.rm = TRUE))
 ```
 
-## C5. Diurnal cyclesSeasons are meteorological (Dec–Feb, Mar–May, Jun–Aug, Sep–Nov). For towers south of the equator (AU-Ctr, latitude < 0) the months are shifted by six months, so that "Summer" always means the warm season of that hemisphere. In the tropics (AU-Ctr, CR-Fsc) the seasons are weak and wet and dry seasons would be more meaningful. Hours are local standard time.
+## C5.
+Diurnal cyclesSeasons are meteorological (Dec–Feb, Mar–May, Jun–Aug, Sep–Nov). For towers south of the equator (AU-Ctr, latitude < 0) the months are shifted by six months, so that "Summer" always means the warm season of that hemisphere. In the tropics (AU-Ctr, CR-Fsc) the seasons are weak and wet and dry seasons would be more meaningful. Hours are local standard time.
 
 ```{r}
 #| label: diurnal
@@ -200,5 +239,89 @@ ggplot(diur, aes(hour, value, colour = season)) +
 ```
 
 ## C6. Your reading
+```{r}
+#| label: energy-balance
+#| fig-cap: "Energy balance closure: H + LE against NETRAD − G, half-hours with measured H and LE only (QC = 0)."
+eb <- hh_all |>
+  filter(H_F_MDS_QC == 0, LE_F_MDS_QC == 0) |>
+  mutate(turb = H_F_MDS + LE_F_MDS, avail = NETRAD - G_F_MDS) |>
+  filter(!is.na(turb), !is.na(avail))
+
+eb_counts <- eb |> count(site, name = "half_hours")
+eb_counts
+
+eb_site <- eb_counts |> slice_max(half_hours, n = 1) |> pull(site)
+eb1 <- eb |> filter(site == eb_site)
+
+fit <- lm(turb ~ avail, data = eb1)
+slope <- unname(coef(fit)[2])
+
+ggplot(eb1, aes(avail, turb)) +
+  geom_bin2d(bins = 80) +
+  scale_fill_viridis_c(trans = "log10", name = "Half hours") +
+  geom_abline(slope = 1, intercept = 0, colour = "red") +
+  geom_smooth(method = "lm", colour = "black", se = FALSE) +
+  labs(title = paste0(eb_site, ": slope = ", round(slope, 2)),
+       x = expression("NETRAD − G (W m"^-2*")"),
+       y = expression("H + LE (W m"^-2*")")) +
+  theme_minimal()
+```
+```{r}
+#| label: comparison
+# mean annual NEE sum (g C m-2 yr-1; negative = net uptake), near-complete years only
+ann_site <- daily |>
+  mutate(year = as.integer(format(date, "%Y"))) |>
+  group_by(site, year) |>
+  summarise(days = sum(!is.na(NEE)), NEE_sum = sum(NEE, na.rm = TRUE), .groups = "drop") |>
+  filter(days >= 330) |>
+  group_by(site) |>
+  summarise(years_used = n(), NEE_annual_gC = mean(NEE_sum), .groups = "drop")
+
+# seasonal cycle: range of monthly mean GPP (g C m-2 d-1)
+season <- daily |>
+  mutate(month = as.integer(format(date, "%m"))) |>
+  group_by(site, month) |>
+  summarise(GPP = mean(GPP, na.rm = TRUE), .groups = "drop") |>
+  group_by(site) |>
+  summarise(GPP_range = suppressWarnings(max(GPP, na.rm = TRUE) - min(GPP, na.rm = TRUE)),
+            .groups = "drop") |>
+  mutate(GPP_range = ifelse(is.finite(GPP_range), GPP_range, NA_real_))
+
+# share of NEE that is gap-filled
+gapfill <- hh_all |>
+  group_by(site) |>
+  summarise(pct_gapfilled = 100 * mean(NEE_VUT_REF_QC[!is.na(NEE_VUT_REF_QC)] != 0),
+            .groups = "drop")
+
+comparison <- ann_site |>
+  full_join(season, by = "site") |>
+  full_join(gapfill, by = "site")
+
+knitr::kable(comparison, digits = 1,
+             col.names = c("Site", "Years used", "Mean annual NEE (g C m⁻² yr⁻¹)",
+                           "Seasonal range of GPP (g C m⁻² d⁻¹)", "% NEE gap-filled"))
+```
+The five towers are a rainforest in northeast Queensland (AU-Ctr, 16°S), an alpine grassland on the Tibetan Plateau (CN-Dan), a sugar cane field in Costa Rica (CR-Fsc, 10°N, so close to the equator), a spruce forest in Saxony, Germany (DE-Tha) and a peatland in Minnesota, USA (US-MBP). CR-Fsc takes up the most carbon (mean annual NEE −1,045 g C m⁻² yr⁻¹, from only 4 years), followed by DE-Tha (−474, 29 years) and US-MBP (−241, 16 years). Because CR-Fsc is a cropland near the equator, the crop can grow for much of the year, but NEE does not include the carbon removed at harvest, so the carbon the field actually keeps is probably much smaller. DE-Tha has the largest seasonal cycle (monthly mean GPP ranges by 8.4 g C m⁻² d⁻¹, against 4.0 at CR-Fsc and 3.7 at US-MBP), which is consistent with its high latitude 51°N. What surprised me is AU-Ctr: a rainforest with a positive mean annual NEE (+66 g C m⁻² yr⁻¹, a net source) and no usable GPP values. CN-Dan has no NEE, GPP or RECO in the half-hourly file, and at the other four towers 52% (DE-Tha) to 71% (US-MBP) of the NEE half-hours are gap-filled. For the energy balance I used DE-Tha, where the slope of 0.72 means H + LE is only about 72% of the available energy (NETRAD − G), a closure gap that is common for eddy-covariance towers.
 
 ## Data and citation
+Data come from the FLUXNET Shuttle snapshot `r basename(snap_file)`. Product files (ONEFlux version v1.3, run r1):
+
+```{r}
+#| results: asis
+cat(paste0("- ", my_snap$fluxnet_product_name), sep = "\n")
+```
+
+Variables used: half-hourly `FLUXMET_HH` files with `NEE_VUT_REF` for NEE, `GPP_NT_VUT_REF` and `RECO_NT_VUT_REF` (night-time partitioning) for GPP and RECO, the gap-filled meteorology (`_F`) and `H_F_MDS` / `LE_F_MDS`. A value of −9999 was treated as missing. Time stamps are local standard time.
+
+**Data citations**
+
+```{r}
+#| results: asis
+cat("\n")
+cat(paste0("- ", my_snap$product_citation), sep = "\n")
+cat("\n")
+```
+
+Pastorello, G. et al. (2020). The FLUXNET2015 dataset and the ONEFlux processing pipeline for eddy covariance data. *Scientific Data* 7, 225. <https://doi.org/10.1038/s41597-020-0534-3>
+
+**FLUXNET acknowledgement:** [paste the acknowledgement text from `flux4student/README.md` here]
