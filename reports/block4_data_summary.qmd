@@ -1,0 +1,47 @@
+---
+title: "Data summary of my five flux towers"
+author: "Sage Tellew"
+date: today
+format:
+  html:
+    toc: true
+    embed-resources: true
+execute:
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+```
+
+```{r}
+#| label: load-data
+#| include: false
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+if (file.exists("data/processed/hh_all.rds")) {
+  hh_all <- readRDS("data/processed/hh_all.rds")
+} else {
+  src <- list.files("scripts", pattern = "^read_hh\\.R$",
+                    ignore.case = TRUE, full.names = TRUE)
+  source(src[1])
+}
+```
+
+## C1. Site overview
+
+## C2. Data coverage
+
+## C3. Summary statistics
+
+## C4. Time series
+
+## C5. Diurnal cycles
+
+## C6. Your reading
+
+## Data and citation
