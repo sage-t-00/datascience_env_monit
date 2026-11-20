@@ -30,17 +30,174 @@ if (file.exists("data/processed/hh_all.rds")) {
                     ignore.case = TRUE, full.names = TRUE)
   source(src[1])
 }
+
+# safety net: any leftover -9999 (some files write it as -9999.0) becomes NA
+hh_all <- hh_all |>
+  mutate(across(where(is.numeric), ~ ifelse(.x <= -9998, NA_real_, .x)))
 ```
 
 ## C1. Site overview
 
 ## C2. Data coverage
+```{r}
+#| label: coverage
+#| fig-cap: "Share of half hours with measured NEE (NEE_VUT_REF_QC == 0) per tower and year."
+cov <- hh_all |>
+  mutate(year = as.integer(format(time, "%Y"))) |>
+  group_by(site, year) |>
+  summarise(share_measured = mean(NEE_VUT_REF_QC %in% 0), .groups = "drop")
+
+ggplot(cov, aes(x = year, y = site, fill = share_measured)) +
+  geom_tile(colour = "white") +
+  scale_fill_viridis_c(limits = c(0, 1), labels = scales::percent,
+                       name = "NEE measured") +
+  scale_x_continuous(breaks = seq(1996, 2026, 2)) +
+  labs(x = "Year", y = "Tower") +
+  theme_minimal()
+```
+DE-Tha has the best NEE coverage, with 54 to 55% of half-hours measured in its best years (2007, 2009, 2017, 2012 and 2004), and it also has the longest record (1996-2026). Even at its best, though, about 45% of the half-hours are gap-filled, and no tower comes close to full coverage. The DE-Tha tile for 2026 is dark because the year isn’t finished, and the first year (1996) is dark as well, so those years have little measured NEE.
+CN-Dan has no measured NEE (or GPP, or RECO), and AU-Cte has NEE but is missing the other measurements
+
+```{r}
+#| label: coverage-best
+cov |> arrange(desc(share_measured)) |> slice_head(n = 5)
+```
 
 ## C3. Summary statistics
+```{r}
+#| label: summary-stats
+vars <- c(TA_F = "TA_F (°C)",
+          SW_IN_F = "SW_IN_F (W m⁻²)",
+          VPD_F = "VPD_F (hPa)",
+          P_F = "P_F (mm)",
+          NEE_VUT_REF = "NEE (µmol CO₂ m⁻² s⁻¹)",
+          GPP_NT_VUT_REF = "GPP (µmol CO₂ m⁻² s⁻¹)",
+          RECO_NT_VUT_REF = "RECO (µmol CO₂ m⁻² s⁻¹)",
+          H_F_MDS = "H (W m⁻²)",
+          LE_F_MDS = "LE (W m⁻²)")
+
+# mean annual precipitation sum, using only years with >= 90 % of half hours present
+p_annual <- hh_all |>
+  mutate(year = as.integer(format(time, "%Y"))) |>
+  group_by(site, year) |>
+  summarise(p_sum = sum(P_F, na.rm = TRUE), p_ok = mean(!is.na(P_F)), .groups = "drop") |>
+  filter(p_ok >= 0.9) |>
+  group_by(site) |>
+  summarise(p_annual = mean(p_sum), .groups = "drop")
+
+site_table <- function(s) {
+  d <- hh_all |> filter(site == s)
+  cols <- lapply(names(vars), function(v) {
+    x <- d[[v]]
+    pa <- p_annual$p_annual[p_annual$site == s]
+    m <- if (v == "P_F") { if (length(pa) == 0) NA_real_ else pa } else mean(x, na.rm = TRUE)
+    c(m,
+      suppressWarnings(min(x, na.rm = TRUE)),
+      suppressWarnings(max(x, na.rm = TRUE)),
+      100 * mean(is.na(x)))
+  })
+  out <- do.call(cbind, cols)
+  out[!is.finite(out)] <- NA
+  colnames(out) <- vars
+  rownames(out) <- c("Mean (P_F: annual sum, mm per year)", "Minimum", "Maximum", "% missing")
+  out
+}
+```
+
+```{r}
+#| label: summary-tables
+#| results: asis
+for (s in sort(unique(hh_all$site))) {
+  cat("\n\n**", s, "**\n\n", sep = "")
+  print(knitr::kable(site_table(s), digits = 1))
+}
+```
 
 ## C4. Time series
+```{r}
+#| label: daily
+#| fig-cap: "Daily NEE, GPP and RECO per tower (half-hourly values averaged per day, local standard time). Negative NEE means net uptake of carbon."
+#| fig-height: 9
+library(tidyr)
 
-## C5. Diurnal cycles
+# daily mean (needs >= 80 % of the 48 half hours), converted to g C m-2 d-1
+daily <- hh_all |>
+  mutate(date = as.Date(time)) |>
+  group_by(site, date) |>
+  summarise(across(c(NEE_VUT_REF, GPP_NT_VUT_REF, RECO_NT_VUT_REF),
+                   ~ if (mean(!is.na(.x)) >= 0.8) mean(.x, na.rm = TRUE) * 1.0378 else NA_real_),
+            .groups = "drop") |>
+  rename(NEE = NEE_VUT_REF, GPP = GPP_NT_VUT_REF, RECO = RECO_NT_VUT_REF)
+
+daily |>
+  pivot_longer(c(NEE, GPP, RECO), names_to = "flux", values_to = "value") |>
+  ggplot(aes(date, value, colour = flux)) +
+  geom_line(linewidth = 0.2) +
+  facet_wrap(~site, ncol = 1, scales = "free") +
+  labs(x = "Date", y = expression("Flux (g C m"^-2*" d"^-1*")"), colour = NULL) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+For AU-Cte we only have NEE, and everything else is NA, so we only have the NEE line. There are some noticable gaps in 2014 and 2018
+For CN-Dan the data is entirela NA, therefore the table could not be rendered
+```{r}
+#| label: dd-check
+# check my daily NEE against the FLUXMET_DD file of one site (CR-Fsc)
+zip_cr  <- list.files("data/raw", pattern = "CR-Fsc.*\\.zip$", full.names = TRUE)
+dd_name <- grep("FLUXMET_DD", unzip(zip_cr, list = TRUE)$Name, value = TRUE)
+unzip(zip_cr, files = dd_name, exdir = "data/raw/unzipped")
+
+dd <- read_csv(file.path("data/raw/unzipped", dd_name), na = "-9999",
+               col_select = any_of(c("TIMESTAMP", "NEE_VUT_REF")),
+               col_types = cols(TIMESTAMP = "c", .default = "d")) |>
+  mutate(date = as.Date(TIMESTAMP, "%Y%m%d"))
+
+chk <- daily |> filter(site == "CR-Fsc") |> select(date, mine = NEE) |>
+  inner_join(dd, by = "date")
+
+c(correlation = cor(chk$mine, chk$NEE_VUT_REF, use = "complete.obs"),
+  mean_difference = mean(chk$mine - chk$NEE_VUT_REF, na.rm = TRUE))
+```
+
+## C5. Diurnal cyclesSeasons are meteorological (Dec–Feb, Mar–May, Jun–Aug, Sep–Nov). For towers south of the equator (AU-Ctr, latitude < 0) the months are shifted by six months, so that "Summer" always means the warm season of that hemisphere. In the tropics (AU-Ctr, CR-Fsc) the seasons are weak and wet and dry seasons would be more meaningful. Hours are local standard time.
+
+```{r}
+#| label: diurnal
+#| fig-cap: "Mean diurnal cycle of NEE and LE per season and tower (local standard time)."
+#| fig-height: 7
+library(tidyr)
+
+# only the sign of the latitude matters here (hemisphere)
+lat <- c("AU-Ctr" = -16.1, "CN-Dan" = 30.5, "CR-Fsc" = 10.8,
+         "DE-Tha" = 51.0, "US-MBP" = 47.5)
+
+season_of <- function(month, lat) {
+  m <- ifelse(lat < 0, (month + 5) %% 12 + 1, month)
+  case_when(m %in% c(12, 1, 2) ~ "Winter",
+            m %in% 3:5         ~ "Spring",
+            m %in% 6:8         ~ "Summer",
+            TRUE               ~ "Autumn")
+}
+
+diur <- hh_all |>
+  mutate(month  = as.integer(format(time, "%m")),
+         hour   = as.integer(format(time, "%H")) + as.integer(format(time, "%M")) / 60,
+         season = factor(season_of(month, unname(lat[site])),
+                         levels = c("Winter", "Spring", "Summer", "Autumn"))) |>
+  group_by(site, season, hour) |>
+  summarise(NEE = mean(NEE_VUT_REF, na.rm = TRUE),
+            LE  = mean(LE_F_MDS, na.rm = TRUE), .groups = "drop") |>
+  pivot_longer(c(NEE, LE), names_to = "variable", values_to = "value") |>
+  mutate(variable = factor(variable, levels = c("NEE", "LE"),
+                           labels = c("NEE (µmol CO₂ m⁻² s⁻¹)", "LE (W m⁻²)")))
+
+ggplot(diur, aes(hour, value, colour = season)) +
+  geom_line() +
+  facet_grid(variable ~ site, scales = "free_y") +
+  labs(x = "Hour of day (local standard time)", y = NULL, colour = "Season") +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
 
 ## C6. Your reading
 
