@@ -73,7 +73,7 @@ site_static <- bio |> left_join(soil, by = "site_id")
 
 | Dataset | Variables used | Spatial resolution | Time resolution and period | Downloaded on | Script and changes | Citation |
 |---|---|---|---|---|---|---|
-| FLUXNET (v1.3_r1) | `TA_F`, `P_F` | tower footprint (~100 m–1 km) | half-hourly, 1996–2026 (varies by tower) | [date from Block 4] | Block 4 download script, unchanged | see E6 |
+| FLUXNET (v1.3_r1) | `TA_F`, `P_F` | tower footprint (~100 m–1 km) | half-hourly, 1996–2026 (varies by tower) | [Nov 19, 2026] | Block 4 download script, unchanged | see E6 |
 | WorldClim 2.1 | BIO1, BIO12, monthly `tavg` and `prec` | 5 arc-minutes (~9 km) | 1970–2000 normal | 26 Nov 2026 | `02_worldclim.R`, unchanged | Fick & Hijmans (2017), see E6 |
 | SoilGrids 2.0 | clay, sand, soil organic carbon (0–30 cm, plus other properties in the data) | 250 m | static | 26 Nov 2026 | `04_soilgrids.R`, unchanged | Poggio et al. (2021), see E6 |
 
@@ -90,7 +90,7 @@ site_static |>
 
 ## E3. Methods
 
-**Download:** I ran `02_worldclim.R` and `04_soilgrids.R` once each on 26 Nov 2026 without changing them. [Add anything that failed or any retry from your log.]
+**Download:** I ran `02_worldclim.R` and `04_soilgrids.R` once each on 26 Nov 2026 without changing them.
 
 **Extraction:** the scripts took the value of each raster at the tower coordinates (WorldClim: the 5′ cell containing the tower; SoilGrids: the 250 m cell), in EPSG:4326.
 
@@ -135,13 +135,13 @@ anom |> filter(site_id != "US-MBP") |>
   theme_minimal()
 ```
 
-[One or two sentences: the overall mean temperature anomaly with n, which towers are warmest, and what happens with precipitation.]
+The mean temperature anomaly for all five towers is positive and it's the highest for CN-Dan and DE-Tha, which are in China and Germany, respectively. The maximum anomaly value increased since 2010 in every site except for CR-Fsc, which has very little data to begin with. The mean precipitation anomalies are under |5| for CN-Dan and DE-Tha even though these were the sites with the highest mean temperature anomalies. The strangest one both in terms of value and trend is AU-Ctr in Australia. 40.4(%) mean precipitation anomaly is huge, but looking at the data for the tower, this seems to be accurate for the site.
 
 ## E5. Discussion
 
-1. **Hypothesis:** [Warmer at all five towers: yes. Strongest at the northern towers: only partly. DE-Tha is among the highest, but US-MBP is lower than CN-Dan and AU-Ctr. Precipitation: describe what the figure shows.]
+1. **Hypothesis:** Warmer at all five towers: yes. Strongest at the northern towers: only partly. DE-Tha is among the highest, but US-MBP is lower than CN-Dan and AU-Ctr. Precipitation: Since I was not expecting a clear directional trend, I would say this was supported.
 2. **Scale:** WorldClim cells are about 9 km, much larger than a tower's footprint of 100 m–1 km, so the normal is a regional average. This matters most at CN-Dan, where elevation changes quickly within a cell. SoilGrids cells (250 m) are closer to the footprint, but still coarser than the tower's own surroundings.
-3. **Limitations:** [(a) the normals are interpolations from weather stations, while my yearly values come from tower sensors, so part of the difference may be method and not climate; (b) some towers have few usable years (CR-Fsc has 4); (c) US-MBP precipitation could not be used. With more time I would compare against a second reanalysis.]
+3. **Limitations:** (a) the normals are interpolations from weather stations, while my yearly values come from tower sensors, so part of the difference may be method and not climate; (b) some towers have few usable years (CR-Fsc has 4); (c) US-MBP precipitation could not be used.
 
 ## E6. Data and citations
 
